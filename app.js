@@ -41,6 +41,18 @@ function boot() {
     catch { $('loginError').textContent = 'Não foi possível entrar. Verifique as credenciais e a autorização.'; }
   });
   $('logout').onclick = () => signOut(auth);
+  $('tabNew').onclick = () => {
+    const form = $('assessmentForm');
+    const hasContent = [...form.querySelectorAll('input,textarea')].some(field => field.value.trim()) ||
+      [...document.querySelectorAll('#criteria select')].some(select => select.value !== '');
+    if (hasContent && !window.confirm('Iniciar outra avaliação? Os dados preenchidos serão apagados. Salve ou imprima o relatório antes de continuar.')) return;
+    form.reset();
+    document.querySelectorAll('#criteria select').forEach(select => { select.value = ''; });
+    $('formError').textContent = '';
+    update();
+    $('formPage').hidden = false;
+    form.querySelector('input[name="employee"]').focus();
+  };
   function update() {
     const selected = [...document.querySelectorAll('#criteria select')];
     const complete = selected.every(s => s.value !== '');
