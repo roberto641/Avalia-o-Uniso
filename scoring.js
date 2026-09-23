@@ -31,4 +31,5 @@ function calculate(scores) {
     classification, critical, actionRequired: total < 70 || CRITERIA.some(([key]) => scores[key] <= 5)
   };
 }
+globalThis.UNISO_SCORING = { CRITERIA, POLICY_VERSION, calculate };
 if (typeof module !== 'undefined') module.exports = { CRITERIA, POLICY_VERSION, calculate };
