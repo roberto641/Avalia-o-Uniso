@@ -3,7 +3,8 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from
 import { getFirestore, doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-functions.js';
 import { firebaseConfig } from './config.js';
-import { CRITERIA, calculate } from './scoring.js';
+import import './scoring.js';
+const { CRITERIA, calculate } = globalThis.UNISO_SCORING;
 const $ = id => document.getElementById(id);
 if (Object.values(firebaseConfig).some(v => v === 'PREENCHER')) $('setup').hidden = false;
 else boot();
