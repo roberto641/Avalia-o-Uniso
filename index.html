@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Avaliação de Desempenho | UNISO</title><link rel="stylesheet" href="style.css"></head>
+<body><header><img src="uniso-logo.png" alt="UNISO"><div><strong>Avaliação de Desempenho</strong><small>Gestão de pessoas • acesso restrito</small></div><button id="logout" hidden>Sair</button></header>
+<main>
+  <section id="setup" class="card" hidden><h1>Conexão pendente</h1><p>Configure o arquivo <code>config.js</code> com os dados do aplicativo Web da UNISO.</p></section>
+  <section id="login" class="card" hidden><h1>Acesso do gestor</h1><form id="loginForm"><label>E-mail<input name="email" type="email" autocomplete="username" required></label><label>Senha<input name="password" type="password" autocomplete="current-password" required></label><button class="primary">Entrar</button></form><p id="loginError" role="alert"></p></section>
+  <div id="app" hidden><nav><button id="tabNew" class="selected">Nova avaliação</button><span id="identity"></span></nav>
+    <section id="formPage" class="layout"><form id="assessmentForm" class="card">
+      <h1>Nova avaliação</h1><p class="hint">Proposta de política v1 • critérios e faixas sujeitos à aprovação do RH e da Diretoria.</p>
+      <h2>Identificação</h2><div class="grid">
+        <label>Colaborador<input name="employee" maxlength="120" required></label><label>Cargo<input name="position" maxlength="120" required></label>
+        <label>Setor<input name="department" maxlength="120" required></label><label>Tipo<select name="type"><option>Avaliação periódica</option><option>Experiência</option><option>Promoção</option><option>Outra</option></select></label>
+        <label>Início do período<input name="periodStart" type="date" required></label><label>Fim do período<input name="periodEnd" type="date" required></label>
+      </div><p>Gestor avaliador: <b id="evaluatorName"></b></p>
+      <h2>Critérios • 0 a 10</h2><p class="hint">0–2 muito abaixo • 3–5 abaixo • 6–7 adequado • 8–9 acima • 10 excepcional com evidência.</p>
+      <div id="criteria"></div>
+      <h2>Registro e acompanhamento</h2><label>Observações e evidências<textarea name="notes" maxlength="2000" rows="5" placeholder="Descreva fatos verificáveis, resultados e contexto das notas."></textarea></label>
+      <fieldset id="plan" hidden><legend>Plano de ação obrigatório</legend><p class="hint">Ativado para total abaixo de 70 ou qualquer critério com nota até 5.</p>
+        <label>O que desenvolver<input name="goal" maxlength="500"></label><label>Ação recomendada<textarea name="action" maxlength="800" rows="3"></textarea></label>
+        <div class="grid"><label>Responsável<input name="owner" maxlength="120"></label><label>Prazo<input name="deadline" type="date"></label><label>Data de acompanhamento<input name="followUp" type="date"></label></div>
+      </fieldset><p id="formError" role="alert"></p><button type="submit" class="primary" id="submit">Visualizar relatório / imprimir / salvar PDF</button>
+      <p class="hint">O relatório abre em outra aba. Escolha “Imprimir” ou “Salvar como PDF”. A avaliação não fica armazenada; salve o arquivo antes de fechar a aba.</p>
+    </form><aside class="card summary"><h2>Resultado preliminar</h2><div class="big" id="total">— / 100</div><p>Média: <b id="average">—</b></p><p>Aproveitamento: <b id="utilization">—</b></p><p>Classificação: <b id="classification">Aguardando notas</b></p><p>Alerta crítico: <b id="critical">—</b></p><p class="hint">As notas são calculadas no navegador; não são enviadas ao banco de dados.</p></aside></section>
+  </div>
+</main><script type="module" src="app.js"></script></body></html>
