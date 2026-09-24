@@ -130,7 +130,7 @@ function boot() {
     const heading = d.createElement('div');
     const title = d.createElement('h1'); title.textContent = 'AVALIAÇÃO DE DESEMPENHO';
     const subtitle = d.createElement('div'); subtitle.className = 'subtitle';
-    subtitle.textContent = 'UNISO • Proposta de política v1 • Emitido em ' + new Date().toLocaleString('pt-BR');
+    subtitle.textContent = 'UNISO • Emitido em ' + new Date().toLocaleString('pt-BR');
     heading.append(title, subtitle); header.append(logo, heading); main.append(header);
     const addTitle = label => {
       const node = d.createElement('h2'); node.textContent = label; main.append(node);
