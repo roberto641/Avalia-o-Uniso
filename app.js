@@ -62,9 +62,7 @@ function boot() {
     $('utilization').textContent = summary ? `${summary.utilization}%` : '—';
     $('classification').textContent = summary?.classification ?? 'Aguardando notas';
     $('critical').textContent = summary ? summary.critical.join(', ') || 'Nenhum' : '—';
-    $('plan').hidden = !summary?.actionRequired;
-    for (const input of $('plan').querySelectorAll('input,textarea')) input.required = !!summary?.actionRequired;
-  }
+    }
   $('assessmentForm').addEventListener('submit', e => {
     e.preventDefault(); $('formError').textContent = '';
     if (!profile || !['admin', 'gestor'].includes(profile.role)) {
@@ -168,12 +166,18 @@ function boot() {
     addTitle('Observações e evidências');
     const notes = d.createElement('div'); notes.className = 'pre';
     notes.textContent = values.notes || 'Sem observações.'; main.append(notes);
-    addTitle('Plano de ação');
-    const plan = d.createElement('div'); plan.className = 'pre';
-    plan.textContent = result.actionRequired
-      ? `O que desenvolver: ${values.goal}\nAção recomendada: ${values.action}\nResponsável: ${values.owner}\nPrazo: ${values.deadline}\nAcompanhamento: ${values.followUp}`
-      : 'Não requerido nesta avaliação.';
-    main.append(plan);
+    addTitle('Plano de melhoria');
+const plan = d.createElement('div'); plan.className = 'pre';
+plan.textContent = [
+  ['O que desenvolver', values.goal],
+  ['Ação recomendada', values.action],
+  ['Responsável', values.owner],
+  ['Prazo', values.deadline],
+  ['Acompanhamento', values.followUp]
+].filter(([, value]) => value?.trim())
+ .map(([label, value]) => `${label}: ${value}`)
+ .join('\n') || 'Não informado.';
+main.append(plan);
     const signatures = d.createElement('div'); signatures.className = 'signatures';
     for (const label of ['Gestor avaliador', 'Coordenação de RH', 'Diretoria Executiva']) {
       const field = d.createElement('div'); field.textContent = label; signatures.append(field);
