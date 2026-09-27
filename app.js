@@ -137,8 +137,14 @@ function boot() {
     loadHistory();
   };
 
-  $('refreshHistory').onclick = loadHistory;
+    $('refreshHistory').onclick = loadHistory;
   $('employeeSearch').oninput = renderHistory;
+
+  $('clearFilters').onclick = () => {
+    statusFilter = 'ALL';
+    $('employeeSearch').value = '';
+    renderHistory();
+  };
 
   $('assessmentSummary').onclick = event => {
     const button = event.target.closest('button[data-status]');
@@ -148,8 +154,8 @@ function boot() {
     }
 
     statusFilter = button.dataset.status;
-    $('employeeSearch').value = '';
     renderHistory();
+  };
   };
 
   $('tabNew').onclick = () => {
