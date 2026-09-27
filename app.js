@@ -156,7 +156,6 @@ function boot() {
     statusFilter = button.dataset.status;
     renderHistory();
   };
-  };
 
   $('tabNew').onclick = () => {
     const form = $('assessmentForm');
