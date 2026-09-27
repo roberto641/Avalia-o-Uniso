@@ -3,3 +3,61 @@
 .badge.pending{background:#fce5e5;color:#991b1b}
 .badge.done{background:#d6f4de;color:#176a36}
 [hidden]{display:none!important}
+.badge.upcoming {
+  background: #e9eff0;
+  color: #536b6e;
+}
+.assessment-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0 10px;
+}
+.status-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 120px;
+  text-align: left;
+  border: 2px solid #c9e3e5;
+  background: #f1fafb;
+  color: #164f58;
+  padding: 16px;
+}
+.status-card span {
+  font-size: 14px;
+  line-height: 1.3;
+}
+.status-card strong {
+  font-size: 32px;
+  line-height: 1;
+}
+.status-card--pending {
+  border-color: #f0b5b5;
+  background: #fff4f4;
+  color: #982c31;
+}
+.status-card--done {
+  border-color: #a7d9b4;
+  background: #effaf1;
+  color: #176a36;
+}
+.status-card.is-active {
+  outline: 3px solid #16747b;
+  outline-offset: 2px;
+}
+.status-card:focus-visible {
+  outline: 3px solid #083c45;
+  outline-offset: 3px;
+}
+@media (max-width: 900px) {
+  .assessment-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 500px) {
+  .assessment-summary {
+    grid-template-columns: 1fr;
+  }
+}
