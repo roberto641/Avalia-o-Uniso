@@ -22,7 +22,8 @@
       </fieldset><p id="formError" role="alert"></p><button type="submit" class="primary" id="submit">Registrar avaliação e abrir relatório</button>
       <p class="hint">A avaliação ficará registrada no histórico. O relatório abre em outra aba para imprimir ou salvar como PDF.</p>
     </form><aside class="card summary"><h2>Resultado preliminar</h2><div class="big" id="total">— / 100</div><p>Média: <b id="average">—</b></p><p>Aproveitamento: <b id="utilization">—</b></p><p>Classificação: <b id="classification">Aguardando notas</b></p><p>Alerta crítico: <b id="critical">—</b></p><p class="hint">As notas são calculadas no navegador e registradas ao finalizar.</p></aside></section>
-    <div id="assessmentSummary" class="assessment-summary" role="group" aria-label="Filtrar avaliações por andamento">
+    <section id="historyPage" class="card" hidden><h1>Histórico de avaliações</h1>
+<div id="assessmentSummary" class="assessment-summary" role="group" aria-label="Filtrar avaliações por andamento">
   <button type="button" class="status-card is-active" data-status="ALL" aria-pressed="true">
     <span>Total de Avaliações</span><strong id="countAll">0</strong>
   </button>
