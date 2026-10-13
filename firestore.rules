@@ -10,14 +10,55 @@ service cloud.firestore {
         profile().active == true;
     }
     function elevated() { return profile().role in ['admin', 'rh', 'diretoria']; }
+    function employeeFor(record) {
+      return request.auth != null && record.keys().hasAll(['employeeEmail', 'type']) &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email == record.employeeEmail && record.type == 'PERIODICA';
+    }
     match /users/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
       allow list, write: if false;
     }
     match /assessments/{id} {
-      allow get, list: if active() &&
+      allow get: if employeeFor(resource.data) || (active() &&
+        (elevated() || (profile().role == 'gestor' && resource.data.evaluatorUid == request.auth.uid)));
+      allow list: if active() &&
         (elevated() || (profile().role == 'gestor' && resource.data.evaluatorUid == request.auth.uid));
-      allow create, update, delete: if false;
+      allow create: if active() && profile().role in ['admin', 'gestor'] &&
+        request.resource.data.evaluatorUid == request.auth.uid &&
+        request.resource.data.rhNote == '' && request.resource.data.directorNote == '' &&
+        request.resource.data.type in ['DESEMPENHO', 'EXPERIENCIA', 'PROMOCAO', 'PERIODICA'] &&
+        ((request.resource.data.type == 'PERIODICA' &&
+          request.resource.data.status == 'AGUARDANDO_COLABORADOR' &&
+          request.resource.data.employeeEmail is string) ||
+         (request.resource.data.type != 'PERIODICA' &&
+          request.resource.data.status == 'AGUARDANDO_RH'));
+      allow update: if (
+        employeeFor(resource.data) && resource.data.status == 'AGUARDANDO_COLABORADOR' &&
+        request.resource.data.status == 'AGUARDANDO_RH' &&
+        request.resource.data.employeeUid == request.auth.uid &&
+        request.resource.data.questionnaireAnswers.keys().hasAll(resource.data.questionnaireLabels.keys()) &&
+        request.resource.data.questionnaireAnswers.keys().size() == resource.data.questionnaireLabels.keys().size() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'questionnaireAnswers', 'employeeUid', 'employeeSubmittedAt', 'status', 'updatedAt'])
+      ) || (
+        active() && profile().role in ['admin', 'rh'] &&
+        resource.data.status == 'AGUARDANDO_RH' &&
+        request.resource.data.status == 'AGUARDANDO_DIRETORIA' &&
+        request.resource.data.rhUid == request.auth.uid &&
+        request.resource.data.rhNote is string && request.resource.data.rhNote.size() > 0 &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'rhNote', 'rhUid', 'rhName', 'rhAt', 'updatedAt'])
+      ) || (
+        active() && profile().role in ['admin', 'diretoria'] &&
+        resource.data.status == 'AGUARDANDO_DIRETORIA' &&
+        request.resource.data.status == 'CONCLUIDA' &&
+        request.resource.data.directorUid == request.auth.uid &&
+        request.resource.data.directorNote is string && request.resource.data.directorNote.size() > 0 &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'directorNote', 'directorUid', 'directorName', 'directorAt', 'updatedAt'])
+      );
+      allow delete: if false;
     }
     match /{document=**} { allow read, write: if false; }
   }
