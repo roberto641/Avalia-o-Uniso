@@ -5,6 +5,7 @@ import { firebaseConfig } from './config.js';
 
 const $ = id => document.getElementById(id);
 const { QUESTIONNAIRES } = globalThis.UNISO_QUESTIONNAIRES;
+const TITLES = { EXPERIENCIA: 'Experiência', PROMOCAO: 'Promoção', PERIODICA: 'Avaliação periódica' };
 const auth = getAuth(initializeApp(firebaseConfig));
 const db = getFirestore(auth.app);
 const current = new URL(location.href);
@@ -22,7 +23,7 @@ async function load() {
     const snap = await getDoc(doc(db, 'assessments', invitation));
     if (!snap.exists()) throw Error('Convite não encontrado ou sem acesso para este e-mail.');
     record = snap.data();
-    if (record.type !== 'PERIODICA' || record.employeeEmail !== auth.currentUser.email?.toLowerCase())
+    if (!QUESTIONNAIRES[record.type] || record.employeeEmail !== auth.currentUser.email?.toLowerCase())
       throw Error('Este convite pertence a outro endereço de e-mail.');
     if (record.status !== 'AGUARDANDO_COLABORADOR') {
       message('Este questionário já foi enviado ou não está mais aberto.');
@@ -30,8 +31,9 @@ async function load() {
       $('periodicForm').hidden = true;
       return;
     }
+    $('questionnaireHeading').textContent = `Questionário de ${TITLES[record.type]}`;
     $('identity').textContent = `Colaborador: ${record.employee} • Período: ${record.periodStart} a ${record.periodEnd}`;
-    const labels = record.questionnaireLabels || Object.fromEntries(QUESTIONNAIRES.PERIODICA.map((label, index) => [`q${String(index + 1).padStart(2, '0')}`, label]));
+    const labels = record.questionnaireLabels || Object.fromEntries(QUESTIONNAIRES[record.type].map((label, index) => [`q${String(index + 1).padStart(2, '0')}`, label]));
     $('questions').replaceChildren(...Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)).map(([key, label], i) => {
       const container = document.createElement('label');
       container.textContent = `${i + 1}. ${label}`;
@@ -46,7 +48,7 @@ async function load() {
     $('emailForm').hidden = true;
     $('periodicForm').hidden = false;
     $('exit').hidden = false;
-    message('Preencha todas as respostas e envie para análise do RH.');
+    message('Preencha todas as respostas e envie para as considerações do gestor.');
   } catch (err) { message(err.message); }
   finally { loading = false; }
 }
@@ -75,11 +77,11 @@ $('periodicForm').onsubmit = async event => {
       questionnaireAnswers: Object.fromEntries(Object.entries(answers).map(([key, value]) => [key, String(value).trim()])),
       employeeUid: auth.currentUser.uid,
       employeeSubmittedAt: serverTimestamp(),
-      status: 'AGUARDANDO_RH',
+      status: 'AGUARDANDO_GESTOR',
       updatedAt: serverTimestamp()
     });
     $('periodicForm').hidden = true;
-    message('Respostas recebidas. A avaliação agora aguarda análise do RH.');
+    message('Respostas recebidas. A avaliação agora aguarda as considerações do gestor.');
   } catch (err) {
     message(`Não foi possível enviar: ${err.message}`);
     $('submit').disabled = false;
