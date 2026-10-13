@@ -13,7 +13,8 @@ service cloud.firestore {
     function employeeFor(record) {
       return request.auth != null && record.keys().hasAll(['employeeEmail', 'type']) &&
         request.auth.token.email_verified == true &&
-        request.auth.token.email == record.employeeEmail && record.type == 'PERIODICA';
+        request.auth.token.email == record.employeeEmail &&
+        record.type in ['EXPERIENCIA', 'PROMOCAO', 'PERIODICA'];
     }
     match /users/{uid} {
       allow get: if request.auth != null && request.auth.uid == uid;
@@ -28,19 +29,40 @@ service cloud.firestore {
         request.resource.data.evaluatorUid == request.auth.uid &&
         request.resource.data.rhNote == '' && request.resource.data.directorNote == '' &&
         request.resource.data.type in ['DESEMPENHO', 'EXPERIENCIA', 'PROMOCAO', 'PERIODICA'] &&
-        ((request.resource.data.type == 'PERIODICA' &&
+        ((request.resource.data.type in ['EXPERIENCIA', 'PROMOCAO', 'PERIODICA'] &&
           request.resource.data.status == 'AGUARDANDO_COLABORADOR' &&
-          request.resource.data.employeeEmail is string) ||
-         (request.resource.data.type != 'PERIODICA' &&
+          request.resource.data.employeeEmail is string &&
+          request.resource.data.employeeEmail.size() > 3) ||
+         (request.resource.data.type == 'DESEMPENHO' &&
           request.resource.data.status == 'AGUARDANDO_RH'));
       allow update: if (
         employeeFor(resource.data) && resource.data.status == 'AGUARDANDO_COLABORADOR' &&
-        request.resource.data.status == 'AGUARDANDO_RH' &&
+        request.resource.data.status == 'AGUARDANDO_GESTOR' &&
         request.resource.data.employeeUid == request.auth.uid &&
         request.resource.data.questionnaireAnswers.keys().hasAll(resource.data.questionnaireLabels.keys()) &&
         request.resource.data.questionnaireAnswers.keys().size() == resource.data.questionnaireLabels.keys().size() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'questionnaireAnswers', 'employeeUid', 'employeeSubmittedAt', 'status', 'updatedAt'])
+      ) || (
+        active() && profile().role in ['admin', 'gestor'] &&
+        resource.data.type in ['EXPERIENCIA', 'PROMOCAO', 'PERIODICA'] &&
+        resource.data.evaluatorUid == request.auth.uid &&
+        resource.data.status == 'AGUARDANDO_GESTOR' &&
+        request.resource.data.status == 'AGUARDANDO_RH' &&
+        request.resource.data.managerUid == request.auth.uid &&
+        request.resource.data.managerName is string &&
+        request.resource.data.managerName.size() > 0 &&
+        request.resource.data.notes is string &&
+        request.resource.data.notes.size() > 0 &&
+        request.resource.data.plan.keys().hasAll(['goal', 'action', 'owner']) &&
+        request.resource.data.plan.goal is string &&
+        request.resource.data.plan.goal.size() > 0 &&
+        request.resource.data.plan.action is string &&
+        request.resource.data.plan.action.size() > 0 &&
+        request.resource.data.plan.owner is string &&
+        request.resource.data.plan.owner.size() > 0 &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'notes', 'plan', 'managerUid', 'managerName', 'managerAt', 'status', 'updatedAt'])
       ) || (
         active() && profile().role in ['admin', 'rh'] &&
         resource.data.status == 'AGUARDANDO_RH' &&
