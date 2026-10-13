@@ -1,10 +1,11 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendSignInLinkToEmail } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import { getFirestore, doc, getDoc, onSnapshot, collection, query, where, addDoc, updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 import { firebaseConfig } from './config.js';
-import './scoring.js';
-
-const { CRITERIA, calculate } = globalThis.UNISO_SCORING;
+const { CRITERIA, WEIGHTS, POLICY_VERSION, calculate, calculateLegacy } = globalThis.UNISO_SCORING;
+const { QUESTIONNAIRES, QUESTIONNAIRE_VERSION } = globalThis.UNISO_QUESTIONNAIRES;
+const TYPES = { DESEMPENHO: 'Avaliação e Desempenho', EXPERIENCIA: 'Experiência', PROMOCAO: 'Promoção', PERIODICA: 'Avaliação periódica' };
+const questionKey = index => `q${String(index + 1).padStart(2, '0')}`;
 const $ = id => document.getElementById(id);
 
 if (Object.values(firebaseConfig).some(v => v === 'PREENCHER')) {
@@ -40,7 +41,7 @@ function boot() {
 
     const text = document.createElement('label');
     text.htmlFor = `score-${key}`;
-    text.textContent = label;
+    text.textContent = `${label} (peso ${WEIGHTS[key]})`;
 
     const select = document.createElement('select');
     select.id = `score-${key}`;
@@ -56,6 +57,40 @@ function boot() {
     row.append(text, select);
     return row;
   }));
+
+  $('assessmentType').addEventListener('change', configureType);
+  function configureType() {
+    const type = $('assessmentType').value;
+    const performance = type === 'DESEMPENHO';
+    const periodic = type === 'PERIODICA';
+    $('scoreSection').hidden = !performance;
+    $('scoreSummary').hidden = !performance;
+    $('narrativeSection').hidden = performance || periodic;
+    $('employeeEmailWrap').hidden = !periodic;
+    $('employeeEmail').required = periodic;
+    $('managerExtras').hidden = periodic;
+    $('submit').textContent = periodic ? 'Criar convite e enviar link ao colaborador' : 'Registrar avaliação e abrir relatório';
+    $('submitHelp').textContent = periodic
+      ? 'O colaborador responderá por um link enviado ao e-mail informado. Depois, a avaliação seguirá para análise do RH.'
+      : 'A avaliação ficará registrada no histórico. O relatório abre em outra aba para imprimir ou salvar como PDF.';
+    document.querySelectorAll('#criteria select').forEach(select => { select.required = performance; });
+    const questions = QUESTIONNAIRES[type] || [];
+    $('narrativeTitle').textContent = `Questionário de ${TYPES[type] || type}`;
+    $('narrativeHelp').textContent = 'Responda a todas as perguntas antes de registrar.';
+    $('narrativeQuestions').replaceChildren(...(periodic ? [] : questions.map((question, i) => {
+      const label = document.createElement('label');
+      label.textContent = `${i + 1}. ${question}`;
+      const field = document.createElement('textarea');
+      field.name = questionKey(i);
+      field.rows = 3;
+      field.maxLength = 4000;
+      field.required = true;
+      label.append(field);
+      return label;
+    })));
+    update();
+  }
+  configureType();
 
   onAuthStateChanged(auth, async user => {
     if (historyUnsubscribe) {
@@ -176,6 +211,7 @@ function boot() {
     }
 
     form.reset();
+    configureType();
 
     document.querySelectorAll('#criteria select').forEach(select => {
       select.value = '';
@@ -189,6 +225,7 @@ function boot() {
   };
 
   function update() {
+    if ($('assessmentType').value !== 'DESEMPENHO') return;
     const selected = [...document.querySelectorAll('#criteria select')];
     const complete = selected.every(s => s.value !== '');
 
@@ -209,7 +246,7 @@ function boot() {
       : '—';
 
     $('utilization').textContent = summary
-      ? `${summary.utilization}%`
+      ? `${summary.total}/100`
       : '—';
 
     $('classification').textContent =
@@ -232,15 +269,20 @@ function boot() {
 
     const values = Object.fromEntries(new FormData(e.target));
 
-    const scores = Object.fromEntries(
-      [...document.querySelectorAll('#criteria select')]
-        .map(s => [s.dataset.key, Number(s.value)])
-    );
-
-    let result;
+    const type = values.type;
+    const scores = type === 'DESEMPENHO' ? Object.fromEntries(
+      [...document.querySelectorAll('#criteria select')].map(s => [s.dataset.key, Number(s.value)])
+    ) : null;
+    const questions = QUESTIONNAIRES[type] || [];
+    const questionnaireLabels = Object.fromEntries(questions.map((label, i) => [questionKey(i), label]));
+    const questionnaireAnswers = type === 'PERIODICA' ? {} :
+      Object.fromEntries(questions.map((_, i) => [questionKey(i), String(values[questionKey(i)] || '').trim()]));
+    let result = null;
 
     try {
-      result = calculate(scores);
+      if (type === 'DESEMPENHO') result = calculate(scores);
+      else if (type !== 'PERIODICA' && Object.values(questionnaireAnswers).some(answer => !answer))
+        throw Error('Responda a todas as perguntas.');
     } catch (err) {
       $('formError').textContent = err.message;
       return;
@@ -252,9 +294,9 @@ function boot() {
       return;
     }
 
-    const preview = window.open('', '_blank');
+    const preview = type === 'PERIODICA' ? null : window.open('', '_blank');
 
-    if (!preview) {
+    if (type !== 'PERIODICA' && !preview) {
       $('formError').textContent =
         'Permita a abertura de janelas para este site e clique novamente.';
       return;
@@ -270,10 +312,16 @@ function boot() {
         position: values.position.trim(),
         department: values.department.trim(),
         type: values.type,
+        questionnaireVersion: type === 'DESEMPENHO' ? null : QUESTIONNAIRE_VERSION,
+        questionnaireLabels,
+        questionnaireAnswers,
+        employeeEmail: type === 'PERIODICA' ? values.employeeEmail.trim().toLowerCase() : '',
         periodStart: values.periodStart,
         periodEnd: values.periodEnd,
-        scores,
-        total: result.total,
+        scores: scores || {},
+        total: result?.total ?? null,
+        rawTotal: result?.rawTotal ?? null,
+        scoringVersion: type === 'DESEMPENHO' ? POLICY_VERSION : null,
         notes: values.notes?.trim() || '',
         plan: Object.fromEntries(
           ['goal', 'action', 'owner', 'deadline', 'followUp']
@@ -283,7 +331,7 @@ function boot() {
         evaluatorUid: auth.currentUser.uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        status: 'AGUARDANDO_RH',
+        status: type === 'PERIODICA' ? 'AGUARDANDO_COLABORADOR' : 'AGUARDANDO_RH',
         rhNote: '',
         rhUid: '',
         rhName: '',
@@ -296,6 +344,20 @@ function boot() {
 
       const ref = await addDoc(collection(db, 'assessments'), payload);
       registered = true;
+
+      if (type === 'PERIODICA') {
+        try {
+          const url = new URL('./periodic.html', location.href);
+          url.searchParams.set('invite', ref.id);
+          await sendSignInLinkToEmail(auth, payload.employeeEmail, {
+            url: url.href, handleCodeInApp: true
+          });
+          $('formError').textContent = 'Convite registrado e link enviado ao colaborador. Aguardando resposta.';
+        } catch (sendError) {
+          $('formError').textContent = `Convite registrado, mas o link não foi enviado: ${sendError.message}. Confira a configuração do login por link e entre em contato com o suporte antes de reenviar.`;
+        }
+        return;
+      }
 
       $('formError').textContent =
         'Avaliação registrada. Aguardando análise do RH.';
@@ -315,7 +377,7 @@ function boot() {
           `Avaliação registrada, mas não foi possível abrir o relatório: ${err.message}. Consulte o histórico.`;
       }
     } catch (err) {
-      preview.close();
+      preview?.close();
       $('formError').textContent =
         `Não foi possível registrar a avaliação: ${err.message}`;
     } finally {
@@ -372,6 +434,7 @@ function boot() {
 
     const counts = {
       ALL: records.length,
+      AGUARDANDO_COLABORADOR: 0,
       AGUARDANDO_RH: 0,
       AGUARDANDO_DIRETORIA: 0,
       CONCLUIDA: 0
@@ -384,6 +447,7 @@ function boot() {
     }
 
     $('countAll').textContent = counts.ALL;
+    $('countEmployee').textContent = counts.AGUARDANDO_COLABORADOR;
     $('countRh').textContent = counts.AGUARDANDO_RH;
     $('countDirector').textContent = counts.AGUARDANDO_DIRETORIA;
     $('countDone').textContent = counts.CONCLUIDA;
@@ -424,7 +488,7 @@ function boot() {
 
       const info = document.createElement('small');
       info.textContent =
-        `${item.department} • ${item.total}/100 • ${dateTime(item.createdAt)} • Gestor: ${item.evaluator}`;
+        `${item.department} • ${TYPES[item.type] || item.type} • ${item.type === 'DESEMPENHO' || item.scores && Object.keys(item.scores).length === 10 ? `${item.total}/100 • ` : ''}${dateTime(item.createdAt)} • Gestor: ${item.evaluator}`;
 
       const status = document.createElement('p');
 
@@ -432,23 +496,29 @@ function boot() {
       rh.className = 'badge ' + (item.rhAt ? 'done' : 'pending');
       rh.textContent = item.rhAt
         ? 'RH: concluído'
-        : 'Aguardando análise do RH';
+        : item.status === 'AGUARDANDO_COLABORADOR' ? 'RH: próxima etapa' : 'Aguardando análise do RH';
 
       const director = document.createElement('span');
       director.className = 'badge ' + (
         item.directorAt
           ? 'done'
-          : item.status === 'AGUARDANDO_RH'
+          : ['AGUARDANDO_RH', 'AGUARDANDO_COLABORADOR'].includes(item.status)
             ? 'upcoming'
             : 'pending'
       );
 
       director.textContent = item.directorAt
         ? 'Diretoria: concluída'
-        : item.status === 'AGUARDANDO_RH'
+        : ['AGUARDANDO_RH', 'AGUARDANDO_COLABORADOR'].includes(item.status)
           ? 'Diretoria: próxima etapa'
           : 'Aguardando análise da diretoria';
 
+      if (item.status === 'AGUARDANDO_COLABORADOR') {
+        const employee = document.createElement('span');
+        employee.className = 'badge pending';
+        employee.textContent = 'Aguardando resposta do colaborador';
+        status.append(employee, document.createTextNode(' '));
+      }
       status.append(rh, document.createTextNode(' '), director);
 
       const view = document.createElement('button');
@@ -469,7 +539,8 @@ function boot() {
             preview,
             itemValues(item),
             item.scores,
-            calculate(item.scores),
+            item.type === 'DESEMPENHO' || Object.keys(item.scores || {}).length === 10
+              ? (item.scoringVersion ? calculate(item.scores) : calculateLegacy(item.scores)) : null,
             item.evaluator,
             item
           );
@@ -480,6 +551,25 @@ function boot() {
       };
 
       box.append(name, info, status, view);
+
+      if (item.status === 'AGUARDANDO_COLABORADOR' &&
+          item.evaluatorUid === auth.currentUser.uid && item.employeeEmail) {
+        const resend = document.createElement('button');
+        resend.type = 'button';
+        resend.textContent = 'Reenviar link ao colaborador';
+        resend.onclick = async () => {
+          resend.disabled = true;
+          try {
+            const url = new URL('./periodic.html', location.href);
+            url.searchParams.set('invite', item.id);
+            await sendSignInLinkToEmail(auth, item.employeeEmail, { url: url.href, handleCodeInApp: true });
+            $('historyStatus').textContent = 'Novo link enviado ao colaborador.';
+          } catch (err) {
+            $('historyStatus').textContent = `Falha no envio do link: ${err.message}`;
+          } finally { resend.disabled = false; }
+        };
+        box.append(resend);
+      }
 
       if (
         (profile.role === 'rh' || profile.role === 'admin') &&
@@ -638,7 +728,7 @@ function boot() {
 
     const heading = d.createElement('div');
     const title = d.createElement('h1');
-    title.textContent = 'AVALIAÇÃO DE DESEMPENHO';
+    title.textContent = (TYPES[values.type] || 'Avaliação de Desempenho').toLocaleUpperCase('pt-BR');
 
     const subtitle = d.createElement('div');
     subtitle.className = 'subtitle';
@@ -665,7 +755,7 @@ function boot() {
       ['Colaborador', values.employee],
       ['Cargo', values.position],
       ['Setor', values.department],
-      ['Tipo', values.type],
+      ['Tipo', TYPES[values.type] || values.type],
       ['Período', `${values.periodStart} a ${values.periodEnd}`],
       ['Gestor avaliador', evaluator]
     ]) {
@@ -676,6 +766,7 @@ function boot() {
       meta.append(item);
     }
 
+    if (result) {
     addTitle('Critérios e notas');
 
     const table = d.createElement('table');
@@ -683,7 +774,7 @@ function boot() {
     const tbody = d.createElement('tbody');
     const headRow = d.createElement('tr');
 
-    for (const text of ['Critério', 'Nota']) {
+    for (const text of ['Critério', 'Peso', 'Nota']) {
       const cell = d.createElement('th');
       cell.textContent = text;
       headRow.append(cell);
@@ -698,6 +789,7 @@ function boot() {
 
       for (const value of [
         `${i + 1}. ${label}`,
+        String(record?.scoringVersion ? WEIGHTS[key] : '—'),
         `${scores[key]}/10`
       ]) {
         const cell = d.createElement('td');
@@ -712,7 +804,7 @@ function boot() {
     summary.className = 'result';
 
     summary.textContent =
-      `Total: ${result.total}/100  •  Média: ${result.average.toFixed(1)}  •  Aproveitamento: ${result.utilization}%`;
+      `Nota final: ${result.total}/100  •  Média simples: ${result.average.toFixed(1)}${record?.scoringVersion ? '  •  Pesos normalizados pela soma 65' : '  •  Regra anterior sem ponderação'}`;
 
     summary.append(
       d.createElement('br'),
@@ -727,7 +819,21 @@ function boot() {
     );
 
     main.append(summary);
+    } else {
+      addTitle('Perguntas e respostas');
+      const labels = record?.questionnaireLabels || {};
+      const answers = record?.questionnaireAnswers || {};
+      for (const [key, label] of Object.entries(labels).sort(([a], [b]) => a.localeCompare(b))) {
+        const heading = d.createElement('strong');
+        heading.textContent = label;
+        const answer = d.createElement('p');
+        answer.className = 'pre';
+        answer.textContent = answers[key] || 'Aguardando resposta.';
+        main.append(heading, answer);
+      }
+    }
 
+    if (values.type !== 'PERIODICA') {
     addTitle('Observações e evidências');
 
     const notes = d.createElement('div');
@@ -752,6 +858,7 @@ function boot() {
       .join('\n') || 'Não informado.';
 
     main.append(plan);
+    }
 
     addTitle('Acompanhamento das análises');
 
@@ -759,7 +866,7 @@ function boot() {
     tracking.className = 'pre';
 
     tracking.textContent =
-      `RH: ${record?.rhAt
+      `${record?.status === 'AGUARDANDO_COLABORADOR' ? 'Colaborador: aguardando resposta\n' : ''}RH: ${record?.rhAt
         ? 'Concluído em ' + dateTime(record.rhAt)
         : 'Aguardando análise do RH'}\n` +
       `Diretoria: ${record?.directorAt
