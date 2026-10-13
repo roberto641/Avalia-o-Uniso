@@ -324,7 +324,7 @@ function boot() {
         scoringVersion: type === 'DESEMPENHO' ? POLICY_VERSION : null,
         notes: values.notes?.trim() || '',
         plan: Object.fromEntries(
-          ['goal', 'action', 'owner', 'deadline', 'followUp']
+          ['goal', 'action', 'owner']
             .map(key => [key, values[key]?.trim() || ''])
         ),
         evaluator: profile.name,
@@ -849,9 +849,7 @@ function boot() {
     plan.textContent = [
       ['O que desenvolver', values.goal],
       ['Ação recomendada', values.action],
-      ['Responsável', values.owner],
-      ['Prazo', values.deadline],
-      ['Acompanhamento', values.followUp]
+      ['Responsável', values.owner]
     ]
       .filter(([, value]) => value?.trim())
       .map(([label, value]) => `${label}: ${value}`)
