@@ -2,15 +2,9 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/fireba
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendSignInLinkToEmail, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
 import { getFirestore, doc, getDoc, onSnapshot, collection, query, where, addDoc, updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 import { firebaseConfig } from './config.js';
-
 const { CRITERIA, WEIGHTS, POLICY_VERSION, calculate, calculateLegacy } = globalThis.UNISO_SCORING;
 const { QUESTIONNAIRES, QUESTIONNAIRE_VERSION } = globalThis.UNISO_QUESTIONNAIRES;
-const TYPES = {
-  DESEMPENHO: 'Avaliação e Desempenho',
-  EXPERIENCIA: 'Experiência',
-  PROMOCAO: 'Promoção',
-  PERIODICA: 'Avaliação periódica'
-};
+const TYPES = { DESEMPENHO: 'Avaliação e Desempenho', EXPERIENCIA: 'Experiência', PROMOCAO: 'Promoção', PERIODICA: 'Avaliação periódica' };
 const questionKey = index => `q${String(index + 1).padStart(2, '0')}`;
 const $ = id => document.getElementById(id);
 
@@ -65,54 +59,33 @@ function boot() {
   }));
 
   $('assessmentType').addEventListener('change', configureType);
-
   function configureType() {
     const type = $('assessmentType').value;
     const performance = type === 'DESEMPENHO';
-    const periodic = type === 'PERIODICA';
-
+    const employeeQuestionnaire = !performance;
     $('scoreSection').hidden = !performance;
     $('scoreSummary').hidden = !performance;
-    $('narrativeSection').hidden = performance || periodic;
-    $('employeeEmailWrap').hidden = !periodic;
-    $('employeeEmail').required = periodic;
-    $('managerExtras').hidden = periodic;
-
-    $('submit').textContent = periodic
-      ? 'Criar convite e enviar link ao colaborador'
-      : 'Registrar avaliação e abrir relatório';
-
-    $('submitHelp').textContent = periodic
-      ? 'O colaborador responderá por um link enviado ao e-mail informado. Depois, a avaliação seguirá para análise do RH.'
+    $('narrativeSection').hidden = performance;
+    $('employeeEmailWrap').hidden = !employeeQuestionnaire;
+    $('employeeEmail').required = employeeQuestionnaire;
+    $('managerExtras').hidden = employeeQuestionnaire;
+    $('submit').textContent = employeeQuestionnaire ? 'Criar convite e enviar link ao colaborador' : 'Registrar avaliação e abrir relatório';
+    $('submitHelp').textContent = employeeQuestionnaire
+      ? 'O colaborador responderá por um link enviado ao e-mail informado. Depois, o gestor registrará suas considerações antes de encaminhar a avaliação ao RH.'
       : 'A avaliação ficará registrada no histórico. O relatório abre em outra aba para imprimir ou salvar como PDF.';
-
-    document.querySelectorAll('#criteria select').forEach(select => {
-      select.required = performance;
-    });
-
+    document.querySelectorAll('#criteria select').forEach(select => { select.required = performance; });
     const questions = QUESTIONNAIRES[type] || [];
     $('narrativeTitle').textContent = `Questionário de ${TYPES[type] || type}`;
-    $('narrativeHelp').textContent = 'Responda a todas as perguntas antes de registrar.';
-
-    $('narrativeQuestions').replaceChildren(
-      ...(periodic ? [] : questions.map((question, i) => {
-        const label = document.createElement('label');
-        label.textContent = `${i + 1}. ${question}`;
-
-        const field = document.createElement('textarea');
-        field.name = questionKey(i);
-        field.rows = 3;
-        field.maxLength = 4000;
-        field.required = true;
-
-        label.append(field);
-        return label;
-      }))
-    );
-
+    $('narrativeHelp').textContent = 'Estas perguntas serão enviadas ao colaborador pelo link individual.';
+    const list = document.createElement('ol');
+    list.append(...questions.map(question => {
+      const item = document.createElement('li');
+      item.textContent = question;
+      return item;
+    }));
+    $('narrativeQuestions').replaceChildren(list);
     update();
   }
-
   configureType();
 
   onAuthStateChanged(auth, async user => {
@@ -181,30 +154,22 @@ function boot() {
         : err.code === 'auth/too-many-requests'
           ? 'Muitas tentativas. Aguarde antes de tentar novamente.'
           : 'Confira o e-mail e a senha. Se você usou o link de avaliação com este e-mail, redefina a senha.';
-
-      $('loginError').textContent =
-        `${help} (${err.code || 'erro desconhecido'})`;
+      $('loginError').textContent = `${help} (${err.code || 'erro desconhecido'})`;
     }
   });
 
   const resetButton = $('resetPassword');
-
   if (resetButton) resetButton.onclick = async () => {
     const email = $('loginForm').elements.email.value.trim();
-
     if (!email || !$('loginForm').elements.email.checkValidity()) {
-      $('loginError').textContent =
-        'Informe seu e-mail válido antes de solicitar a redefinição.';
+      $('loginError').textContent = 'Informe seu e-mail válido antes de solicitar a redefinição.';
       return;
     }
-
     try {
       await sendPasswordResetEmail(auth, email);
-      $('loginError').textContent =
-        'Se a conta estiver cadastrada, você receberá um e-mail para redefinir a senha.';
+      $('loginError').textContent = 'Se a conta estiver cadastrada, você receberá um e-mail para redefinir a senha.';
     } catch (err) {
-      $('loginError').textContent =
-        `Não foi possível solicitar a redefinição: ${err.code || err.message}`;
+      $('loginError').textContent = `Não foi possível solicitar a redefinição: ${err.code || err.message}`;
     }
   };
 
@@ -222,7 +187,7 @@ function boot() {
     loadHistory();
   };
 
-  $('refreshHistory').onclick = loadHistory;
+    $('refreshHistory').onclick = loadHistory;
   $('employeeSearch').oninput = renderHistory;
 
   $('clearFilters').onclick = () => {
@@ -276,7 +241,6 @@ function boot() {
 
   function update() {
     if ($('assessmentType').value !== 'DESEMPENHO') return;
-
     const selected = [...document.querySelectorAll('#criteria select')];
     const complete = selected.every(s => s.value !== '');
 
@@ -319,41 +283,20 @@ function boot() {
     }
 
     const values = Object.fromEntries(new FormData(e.target));
+
     const type = values.type;
-
-    const scores = type === 'DESEMPENHO'
-      ? Object.fromEntries(
-          [...document.querySelectorAll('#criteria select')]
-            .map(s => [s.dataset.key, Number(s.value)])
-        )
-      : null;
-
+    const scores = type === 'DESEMPENHO' ? Object.fromEntries(
+      [...document.querySelectorAll('#criteria select')].map(s => [s.dataset.key, Number(s.value)])
+    ) : null;
     const questions = QUESTIONNAIRES[type] || [];
-
-    const questionnaireLabels = Object.fromEntries(
-      questions.map((label, i) => [questionKey(i), label])
-    );
-
-    const questionnaireAnswers = type === 'PERIODICA'
-      ? {}
-      : Object.fromEntries(
-          questions.map((_, i) => [
-            questionKey(i),
-            String(values[questionKey(i)] || '').trim()
-          ])
-        );
-
+    const questionnaireLabels = Object.fromEntries(questions.map((label, i) => [questionKey(i), label]));
+    const employeeQuestionnaire = type !== 'DESEMPENHO';
+    const questionnaireAnswers = {};
     let result = null;
 
     try {
-      if (type === 'DESEMPENHO') {
-        result = calculate(scores);
-      } else if (
-        type !== 'PERIODICA' &&
-        Object.values(questionnaireAnswers).some(answer => !answer)
-      ) {
-        throw Error('Responda a todas as perguntas.');
-      }
+      if (type === 'DESEMPENHO') result = calculate(scores);
+      else if (!questions.length) throw Error('Tipo de avaliação sem questionário configurado.');
     } catch (err) {
       $('formError').textContent = err.message;
       return;
@@ -365,11 +308,9 @@ function boot() {
       return;
     }
 
-    const preview = type === 'PERIODICA'
-      ? null
-      : window.open('', '_blank');
+    const preview = employeeQuestionnaire ? null : window.open('', '_blank');
 
-    if (type !== 'PERIODICA' && !preview) {
+    if (!employeeQuestionnaire && !preview) {
       $('formError').textContent =
         'Permita a abertura de janelas para este site e clique novamente.';
       return;
@@ -385,21 +326,16 @@ function boot() {
         position: values.position.trim(),
         department: values.department.trim(),
         type: values.type,
-        questionnaireVersion:
-          type === 'DESEMPENHO' ? null : QUESTIONNAIRE_VERSION,
+        questionnaireVersion: type === 'DESEMPENHO' ? null : QUESTIONNAIRE_VERSION,
         questionnaireLabels,
         questionnaireAnswers,
-        employeeEmail: type === 'PERIODICA'
-          ? values.employeeEmail.trim().toLowerCase()
-          : '',
+        employeeEmail: employeeQuestionnaire ? values.employeeEmail.trim().toLowerCase() : '',
         periodStart: values.periodStart,
         periodEnd: values.periodEnd,
         scores: scores || {},
         total: result?.total ?? null,
         rawTotal: result?.rawTotal ?? null,
-        scoringVersion: type === 'DESEMPENHO'
-          ? POLICY_VERSION
-          : null,
+        scoringVersion: type === 'DESEMPENHO' ? POLICY_VERSION : null,
         notes: values.notes?.trim() || '',
         plan: Object.fromEntries(
           ['goal', 'action', 'owner']
@@ -409,9 +345,7 @@ function boot() {
         evaluatorUid: auth.currentUser.uid,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        status: type === 'PERIODICA'
-          ? 'AGUARDANDO_COLABORADOR'
-          : 'AGUARDANDO_RH',
+        status: employeeQuestionnaire ? 'AGUARDANDO_COLABORADOR' : 'AGUARDANDO_RH',
         rhNote: '',
         rhUid: '',
         rhName: '',
@@ -425,23 +359,17 @@ function boot() {
       const ref = await addDoc(collection(db, 'assessments'), payload);
       registered = true;
 
-      if (type === 'PERIODICA') {
+      if (employeeQuestionnaire) {
         try {
           const url = new URL('./periodic.html', location.href);
           url.searchParams.set('invite', ref.id);
-
           await sendSignInLinkToEmail(auth, payload.employeeEmail, {
-            url: url.href,
-            handleCodeInApp: true
+            url: url.href, handleCodeInApp: true
           });
-
-          $('formError').textContent =
-            'Convite registrado e link enviado ao colaborador. Aguardando resposta.';
+          $('formError').textContent = 'Convite registrado e link enviado ao colaborador. Aguardando resposta.';
         } catch (sendError) {
-          $('formError').textContent =
-            `Convite registrado, mas o link não foi enviado: ${sendError.message}. Confira a configuração do login por link e entre em contato com o suporte antes de reenviar.`;
+          $('formError').textContent = `Convite registrado, mas o link não foi enviado: ${sendError.message}. Confira a configuração do login por link e entre em contato com o suporte antes de reenviar.`;
         }
-
         return;
       }
 
@@ -484,10 +412,7 @@ function boot() {
 
       const base = collection(db, 'assessments');
       const source = profile.role === 'gestor'
-        ? query(
-            base,
-            where('evaluatorUid', '==', auth.currentUser.uid)
-          )
+        ? query(base, where('evaluatorUid', '==', auth.currentUser.uid))
         : base;
 
       historyUnsubscribe = onSnapshot(
@@ -524,6 +449,7 @@ function boot() {
     const counts = {
       ALL: records.length,
       AGUARDANDO_COLABORADOR: 0,
+      AGUARDANDO_GESTOR: 0,
       AGUARDANDO_RH: 0,
       AGUARDANDO_DIRETORIA: 0,
       CONCLUIDA: 0
@@ -536,11 +462,10 @@ function boot() {
     }
 
     $('countAll').textContent = counts.ALL;
-    $('countEmployee').textContent =
-      counts.AGUARDANDO_COLABORADOR;
+    $('countEmployee').textContent = counts.AGUARDANDO_COLABORADOR;
+    $('countManager').textContent = counts.AGUARDANDO_GESTOR;
     $('countRh').textContent = counts.AGUARDANDO_RH;
-    $('countDirector').textContent =
-      counts.AGUARDANDO_DIRETORIA;
+    $('countDirector').textContent = counts.AGUARDANDO_DIRETORIA;
     $('countDone').textContent = counts.CONCLUIDA;
 
     for (
@@ -558,9 +483,7 @@ function boot() {
 
     const found = records.filter(item =>
       (statusFilter === 'ALL' || item.status === statusFilter) &&
-      words.every(word =>
-        normalized(item.employee).includes(word)
-      )
+      words.every(word => normalized(item.employee).includes(word))
     );
 
     $('summaryStatus').textContent =
@@ -580,60 +503,46 @@ function boot() {
       name.textContent = item.employee;
 
       const info = document.createElement('small');
-      const hasScores = item.type === 'DESEMPENHO' ||
-        Object.keys(item.scores || {}).length === 10;
-
       info.textContent =
-        `${item.department} • ${TYPES[item.type] || item.type} • ` +
-        `${hasScores ? `${item.total}/100 • ` : ''}` +
-        `${dateTime(item.createdAt)} • Gestor: ${item.evaluator}`;
+        `${item.department} • ${TYPES[item.type] || item.type} • ${item.type === 'DESEMPENHO' || item.scores && Object.keys(item.scores).length === 10 ? `${item.total}/100 • ` : ''}${dateTime(item.createdAt)} • Gestor: ${item.evaluator}`;
 
       const status = document.createElement('p');
 
       const rh = document.createElement('span');
-      rh.className = 'badge ' +
-        (item.rhAt ? 'done' : 'pending');
-
+      rh.className = 'badge ' + (item.rhAt ? 'done' : 'pending');
       rh.textContent = item.rhAt
         ? 'RH: concluído'
-        : item.status === 'AGUARDANDO_COLABORADOR'
-          ? 'RH: próxima etapa'
-          : 'Aguardando análise do RH';
+        : ['AGUARDANDO_COLABORADOR', 'AGUARDANDO_GESTOR'].includes(item.status)
+          ? 'RH: próxima etapa' : 'Aguardando análise do RH';
 
       const director = document.createElement('span');
       director.className = 'badge ' + (
         item.directorAt
           ? 'done'
-          : ['AGUARDANDO_RH', 'AGUARDANDO_COLABORADOR']
-              .includes(item.status)
+          : ['AGUARDANDO_RH', 'AGUARDANDO_GESTOR', 'AGUARDANDO_COLABORADOR'].includes(item.status)
             ? 'upcoming'
             : 'pending'
       );
 
       director.textContent = item.directorAt
         ? 'Diretoria: concluída'
-        : ['AGUARDANDO_RH', 'AGUARDANDO_COLABORADOR']
-            .includes(item.status)
+        : ['AGUARDANDO_RH', 'AGUARDANDO_GESTOR', 'AGUARDANDO_COLABORADOR'].includes(item.status)
           ? 'Diretoria: próxima etapa'
           : 'Aguardando análise da diretoria';
 
       if (item.status === 'AGUARDANDO_COLABORADOR') {
         const employee = document.createElement('span');
         employee.className = 'badge pending';
-        employee.textContent =
-          'Aguardando resposta do colaborador';
-
-        status.append(
-          employee,
-          document.createTextNode(' ')
-        );
+        employee.textContent = 'Aguardando resposta do colaborador';
+        status.append(employee, document.createTextNode(' '));
       }
-
-      status.append(
-        rh,
-        document.createTextNode(' '),
-        director
-      );
+      if (item.status === 'AGUARDANDO_GESTOR') {
+        const manager = document.createElement('span');
+        manager.className = 'badge pending';
+        manager.textContent = 'Aguardando considerações do gestor';
+        status.append(manager, document.createTextNode(' '));
+      }
+      status.append(rh, document.createTextNode(' '), director);
 
       const view = document.createElement('button');
       view.type = 'button';
@@ -653,13 +562,8 @@ function boot() {
             preview,
             itemValues(item),
             item.scores,
-            hasScores
-              ? (
-                  item.scoringVersion
-                    ? calculate(item.scores)
-                    : calculateLegacy(item.scores)
-                )
-              : null,
+            item.type === 'DESEMPENHO' || Object.keys(item.scores || {}).length === 10
+              ? (item.scoringVersion ? calculate(item.scores) : calculateLegacy(item.scores)) : null,
             item.evaluator,
             item
           );
@@ -671,59 +575,42 @@ function boot() {
 
       box.append(name, info, status, view);
 
-      if (
-        item.status === 'AGUARDANDO_COLABORADOR' &&
-        item.evaluatorUid === auth.currentUser.uid &&
-        item.employeeEmail
-      ) {
+      if (item.status === 'AGUARDANDO_COLABORADOR' &&
+          item.evaluatorUid === auth.currentUser.uid && item.employeeEmail) {
         const resend = document.createElement('button');
         resend.type = 'button';
-        resend.textContent =
-          'Reenviar link ao colaborador';
-
+        resend.textContent = 'Reenviar link ao colaborador';
         resend.onclick = async () => {
           resend.disabled = true;
-
           try {
-            const url = new URL(
-              './periodic.html',
-              location.href
-            );
+            const url = new URL('./periodic.html', location.href);
             url.searchParams.set('invite', item.id);
-
-            await sendSignInLinkToEmail(
-              auth,
-              item.employeeEmail,
-              {
-                url: url.href,
-                handleCodeInApp: true
-              }
-            );
-
-            $('historyStatus').textContent =
-              'Novo link enviado ao colaborador.';
+            await sendSignInLinkToEmail(auth, item.employeeEmail, { url: url.href, handleCodeInApp: true });
+            $('historyStatus').textContent = 'Novo link enviado ao colaborador.';
           } catch (err) {
-            $('historyStatus').textContent =
-              `Falha no envio do link: ${err.message}`;
-          } finally {
-            resend.disabled = false;
-          }
+            $('historyStatus').textContent = `Falha no envio do link: ${err.message}`;
+          } finally { resend.disabled = false; }
         };
-
         box.append(resend);
       }
 
       if (
-        (profile.role === 'rh' ||
-          profile.role === 'admin') &&
+        ['admin', 'gestor'].includes(profile.role) &&
+        item.evaluatorUid === auth.currentUser.uid &&
+        item.status === 'AGUARDANDO_GESTOR'
+      ) {
+        box.append(managerReviewForm(item));
+      }
+
+      if (
+        (profile.role === 'rh' || profile.role === 'admin') &&
         item.status === 'AGUARDANDO_RH'
       ) {
         box.append(reviewForm(item, 'rh'));
       }
 
       if (
-        (profile.role === 'diretoria' ||
-          profile.role === 'admin') &&
+        (profile.role === 'diretoria' || profile.role === 'admin') &&
         item.status === 'AGUARDANDO_DIRETORIA'
       ) {
         box.append(reviewForm(item, 'director'));
@@ -735,6 +622,67 @@ function boot() {
 
   function itemValues(item) {
     return { ...item, ...item.plan };
+  }
+
+  function managerReviewForm(item) {
+    const form = document.createElement('form');
+    const title = document.createElement('h3');
+    title.textContent = 'Considerações do gestor e plano de melhoria';
+    form.append(title);
+
+    const fields = [
+      ['notes', 'Observações e evidências', 2000, true],
+      ['goal', 'O que desenvolver', 500, false],
+      ['action', 'Ação recomendada', 800, true],
+      ['owner', 'Responsável', 120, false]
+    ];
+    const inputs = {};
+    for (const [key, labelText, maxLength, multiline] of fields) {
+      const label = document.createElement('label');
+      label.textContent = labelText;
+      const input = document.createElement(multiline ? 'textarea' : 'input');
+      input.name = key;
+      input.maxLength = maxLength;
+      input.required = true;
+      if (multiline) input.rows = 3;
+      label.append(input);
+      form.append(label);
+      inputs[key] = input;
+    }
+    const button = document.createElement('button');
+    button.type = 'submit';
+    button.className = 'primary';
+    button.textContent = 'Registrar considerações e encaminhar ao RH';
+    const error = document.createElement('p');
+    error.setAttribute('role', 'alert');
+    form.append(button, error);
+
+    form.onsubmit = async event => {
+      event.preventDefault();
+      const values = Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value.trim()]));
+      if (Object.values(values).some(value => !value)) {
+        error.textContent = 'Preencha as observações e todos os campos do plano.';
+        return;
+      }
+      if (!window.confirm('Encaminhar esta avaliação ao RH? As considerações não poderão ser alteradas depois.')) return;
+      button.disabled = true;
+      error.textContent = '';
+      try {
+        await updateDoc(doc(db, 'assessments', item.id), {
+          notes: values.notes,
+          plan: { goal: values.goal, action: values.action, owner: values.owner },
+          managerUid: auth.currentUser.uid,
+          managerName: profile.name,
+          managerAt: serverTimestamp(),
+          status: 'AGUARDANDO_RH',
+          updatedAt: serverTimestamp()
+        });
+      } catch (err) {
+        error.textContent = `Não foi possível encaminhar ao RH: ${err.message}`;
+        button.disabled = false;
+      }
+    };
+    return form;
   }
 
   function reviewForm(item, stage) {
@@ -768,8 +716,7 @@ function boot() {
       event.preventDefault();
 
       if (!note.value.trim()) {
-        error.textContent =
-          'Preencha a observação.';
+        error.textContent = 'Preencha a observação.';
         return;
       }
 
@@ -803,11 +750,7 @@ function boot() {
               updatedAt: serverTimestamp()
             };
 
-        await updateDoc(
-          doc(db, 'assessments', item.id),
-          fields
-        );
-
+        await updateDoc(doc(db, 'assessments', item.id), fields);
         loadHistory();
       } catch (err) {
         error.textContent =
@@ -819,14 +762,7 @@ function boot() {
     return form;
   }
 
-  function showReport(
-    preview,
-    values,
-    scores,
-    result,
-    evaluator,
-    record
-  ) {
+  function showReport(preview, values, scores, result, evaluator, record) {
     const d = preview.document;
 
     d.open();
@@ -864,13 +800,8 @@ function boot() {
     const print = d.createElement('button');
 
     print.type = 'button';
-    print.textContent =
-      'Imprimir ou salvar como PDF';
-
-    print.addEventListener(
-      'click',
-      () => preview.print()
-    );
+    print.textContent = 'Imprimir ou salvar como PDF';
+    print.addEventListener('click', () => preview.print());
 
     actions.append(
       print,
@@ -884,21 +815,17 @@ function boot() {
     header.className = 'head';
 
     const logo = d.createElement('img');
-    logo.src =
-      new URL('./uniso-logo.png', location.href).href;
+    logo.src = new URL('./uniso-logo.png', location.href).href;
     logo.alt = 'UNISO';
 
     const heading = d.createElement('div');
     const title = d.createElement('h1');
-    title.textContent =
-      (TYPES[values.type] || 'Avaliação de Desempenho')
-        .toLocaleUpperCase('pt-BR');
+    title.textContent = (TYPES[values.type] || 'Avaliação de Desempenho').toLocaleUpperCase('pt-BR');
 
     const subtitle = d.createElement('div');
     subtitle.className = 'subtitle';
     subtitle.textContent =
-      'UNISO • Emitido em ' +
-      new Date().toLocaleString('pt-BR');
+      'UNISO • Emitido em ' + new Date().toLocaleString('pt-BR');
 
     heading.append(title, subtitle);
     header.append(logo, heading);
@@ -927,133 +854,100 @@ function boot() {
       const item = d.createElement('div');
       const strong = d.createElement('strong');
       strong.textContent = label + ': ';
-      item.append(
-        strong,
-        d.createTextNode(value)
-      );
+      item.append(strong, d.createTextNode(value));
       meta.append(item);
     }
 
     if (result) {
-      addTitle('Critérios e notas');
+    addTitle('Critérios e notas');
 
-      const table = d.createElement('table');
-      const thead = d.createElement('thead');
-      const tbody = d.createElement('tbody');
-      const headRow = d.createElement('tr');
+    const table = d.createElement('table');
+    const thead = d.createElement('thead');
+    const tbody = d.createElement('tbody');
+    const headRow = d.createElement('tr');
 
-      for (const text of ['Critério', 'Peso', 'Nota']) {
-        const cell = d.createElement('th');
-        cell.textContent = text;
-        headRow.append(cell);
+    for (const text of ['Critério', 'Peso', 'Nota']) {
+      const cell = d.createElement('th');
+      cell.textContent = text;
+      headRow.append(cell);
+    }
+
+    thead.append(headRow);
+    table.append(thead, tbody);
+    main.append(table);
+
+    CRITERIA.forEach(([key, label], i) => {
+      const row = d.createElement('tr');
+
+      for (const value of [
+        `${i + 1}. ${label}`,
+        String(record?.scoringVersion ? WEIGHTS[key] : '—'),
+        `${scores[key]}/10`
+      ]) {
+        const cell = d.createElement('td');
+        cell.textContent = value;
+        row.append(cell);
       }
 
-      thead.append(headRow);
-      table.append(thead, tbody);
-      main.append(table);
+      tbody.append(row);
+    });
 
-      CRITERIA.forEach(([key, label], i) => {
-        const row = d.createElement('tr');
+    const summary = d.createElement('div');
+    summary.className = 'result';
 
-        for (const value of [
-          `${i + 1}. ${label}`,
-          String(
-            record?.scoringVersion
-              ? WEIGHTS[key]
-              : '—'
-          ),
-          `${scores[key]}/10`
-        ]) {
-          const cell = d.createElement('td');
-          cell.textContent = value;
-          row.append(cell);
-        }
+    summary.textContent =
+      `Nota final: ${result.total}/100  •  Média simples: ${result.average.toFixed(1)}${record?.scoringVersion ? '  •  Pesos normalizados pela soma 65' : '  •  Regra anterior sem ponderação'}`;
 
-        tbody.append(row);
-      });
+    summary.append(
+      d.createElement('br'),
+      d.createTextNode(`Classificação: ${result.classification}`)
+    );
 
-      const summary = d.createElement('div');
-      summary.className = 'result';
+    summary.append(
+      d.createElement('br'),
+      d.createTextNode(
+        `Alerta crítico: ${result.critical.join(', ') || 'Nenhum'}`
+      )
+    );
 
-      summary.textContent =
-        `Nota final: ${result.total}/100  •  ` +
-        `Média simples: ${result.average.toFixed(1)}` +
-        (
-          record?.scoringVersion
-            ? '  •  Pesos normalizados pela soma 65'
-            : '  •  Regra anterior sem ponderação'
-        );
-
-      summary.append(
-        d.createElement('br'),
-        d.createTextNode(
-          `Classificação: ${result.classification}`
-        )
-      );
-
-      summary.append(
-        d.createElement('br'),
-        d.createTextNode(
-          `Alerta crítico: ${
-            result.critical.join(', ') || 'Nenhum'
-          }`
-        )
-      );
-
-      main.append(summary);
+    main.append(summary);
     } else {
       addTitle('Perguntas e respostas');
-
-      const labels =
-        record?.questionnaireLabels || {};
-      const answers =
-        record?.questionnaireAnswers || {};
-
-      for (
-        const [key, label] of
-        Object.entries(labels).sort(
-          ([a], [b]) => a.localeCompare(b)
-        )
-      ) {
+      const labels = record?.questionnaireLabels || {};
+      const answers = record?.questionnaireAnswers || {};
+      for (const [key, label] of Object.entries(labels).sort(([a], [b]) => a.localeCompare(b))) {
         const heading = d.createElement('strong');
         heading.textContent = label;
-
         const answer = d.createElement('p');
         answer.className = 'pre';
-        answer.textContent =
-          answers[key] || 'Aguardando resposta.';
-
+        answer.textContent = answers[key] || 'Aguardando resposta.';
         main.append(heading, answer);
       }
     }
 
-    if (values.type !== 'PERIODICA') {
-      addTitle('Observações e evidências');
+    if (result || values.notes || ['goal', 'action', 'owner'].some(key => values[key])) {
+    addTitle('Observações e evidências');
 
-      const notes = d.createElement('div');
-      notes.className = 'pre';
-      notes.textContent =
-        values.notes || 'Sem observações.';
-      main.append(notes);
+    const notes = d.createElement('div');
+    notes.className = 'pre';
+    notes.textContent = values.notes || 'Sem observações.';
+    main.append(notes);
 
-      addTitle('Plano de melhoria');
+    addTitle('Plano de melhoria');
 
-      const plan = d.createElement('div');
-      plan.className = 'pre';
+    const plan = d.createElement('div');
+    plan.className = 'pre';
 
-      plan.textContent = [
-        ['O que desenvolver', values.goal],
-        ['Ação recomendada', values.action],
-        ['Responsável', values.owner]
-      ]
-        .filter(([, value]) => value?.trim())
-        .map(
-          ([label, value]) =>
-            `${label}: ${value}`
-        )
-        .join('\n') || 'Não informado.';
+    plan.textContent = [
+      ['O que desenvolver', values.goal],
+      ['Ação recomendada', values.action],
+      ['Responsável', values.owner]
+    ]
+      .filter(([, value]) => value?.trim())
+      .map(([label, value]) => `${label}: ${value}`)
+      .join('\n') || 'Não informado.';
 
-      main.append(plan);
+    main.append(plan);
     }
 
     addTitle('Acompanhamento das análises');
@@ -1062,21 +956,16 @@ function boot() {
     tracking.className = 'pre';
 
     tracking.textContent =
-      `${
-        record?.status === 'AGUARDANDO_COLABORADOR'
-          ? 'Colaborador: aguardando resposta\n'
-          : ''
-      }RH: ${
-        record?.rhAt
-          ? 'Concluído em ' + dateTime(record.rhAt)
-          : 'Aguardando análise do RH'
-      }\n` +
-      `Diretoria: ${
-        record?.directorAt
-          ? 'Concluída em ' +
-            dateTime(record.directorAt)
-          : 'Aguardando análise da diretoria'
-      }`;
+      `${record?.status === 'AGUARDANDO_COLABORADOR' ? 'Colaborador: aguardando resposta\n' : ''}` +
+      `${record?.type !== 'DESEMPENHO' ? `Gestor: ${record?.managerAt
+        ? 'Considerações registradas em ' + dateTime(record.managerAt)
+        : 'Aguardando considerações'}\n` : ''}` +
+      `RH: ${record?.rhAt
+        ? 'Concluído em ' + dateTime(record.rhAt)
+        : 'Aguardando análise do RH'}\n` +
+      `Diretoria: ${record?.directorAt
+        ? 'Concluída em ' + dateTime(record.directorAt)
+        : 'Aguardando análise da diretoria'}`;
 
     main.append(tracking);
 
@@ -1086,24 +975,18 @@ function boot() {
       const rh = d.createElement('div');
       rh.className = 'pre';
       rh.textContent =
-        `${record.rhNote}\n` +
-        `Responsável: ${record.rhName} • ` +
-        dateTime(record.rhAt);
+        `${record.rhNote}\nResponsável: ${record.rhName} • ${dateTime(record.rhAt)}`;
 
       main.append(rh);
     }
 
     if (record?.directorAt) {
-      addTitle(
-        'Observações da diretoria executiva'
-      );
+      addTitle('Observações da diretoria executiva');
 
       const director = d.createElement('div');
       director.className = 'pre';
       director.textContent =
-        `${record.directorNote}\n` +
-        `Responsável: ${record.directorName} • ` +
-        dateTime(record.directorAt);
+        `${record.directorNote}\nResponsável: ${record.directorName} • ${dateTime(record.directorAt)}`;
 
       main.append(director);
     }
