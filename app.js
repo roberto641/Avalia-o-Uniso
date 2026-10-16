@@ -1,8 +1,9 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
 import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendSignInLinkToEmail, sendPasswordResetEmail } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
-import { getFirestore, doc, getDoc, onSnapshot, collection, query, where, addDoc, updateDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
+import { getFirestore, doc, getDoc, onSnapshot, collection, query, where, addDoc, updateDoc, writeBatch, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 import { firebaseConfig } from './config.js';
-const { CRITERIA, WEIGHTS, POLICY_VERSION, calculate, calculateLegacy } = globalThis.UNISO_SCORING;
+const { CRITERIA, WEIGHTS, POLICY_VERSION, MARKETING_WEIGHTS, MARKETING_POLICY_VERSION,
+  calculate, calculateMarketing, calculateRecord, weightsForVersion } = globalThis.UNISO_SCORING;
 const { QUESTIONNAIRES, QUESTIONNAIRE_VERSION } = globalThis.UNISO_QUESTIONNAIRES;
 const TYPES = { DESEMPENHO: 'Avaliação e Desempenho', EXPERIENCIA: 'Experiência', PROMOCAO: 'Promoção', PERIODICA: 'Avaliação periódica' };
 const questionKey = index => `q${String(index + 1).padStart(2, '0')}`;
@@ -23,6 +24,16 @@ function boot() {
   let records = [];
   let historyUnsubscribe = null;
   let statusFilter = 'ALL';
+  const isMarketing = () => profile?.role === 'marketing';
+  const currentWeights = () => isMarketing() ? MARKETING_WEIGHTS : WEIGHTS;
+  const currentScore = scores => isMarketing() ? calculateMarketing(scores) : calculate(scores);
+
+  function refreshCriterionWeights() {
+    document.querySelectorAll('#criteria select').forEach(select => {
+      select.previousElementSibling.textContent =
+        `${CRITERIA.find(([key]) => key === select.dataset.key)[1]} (peso ${currentWeights()[select.dataset.key]})`;
+    });
+  }
 
   const normalized = value =>
     (value || '')
@@ -95,6 +106,9 @@ function boot() {
     }
 
     profile = null;
+    $('assessmentType').disabled = false;
+    $('weightHint').textContent = 'A nota final é ponderada pelos pesos aprovados (soma 65, normalizada para 100). Assiduidade representa 30/65 da nota.';
+    refreshCriterionWeights();
     $('login').hidden = !!user;
     $('app').hidden = true;
     $('logout').hidden = !user;
@@ -111,19 +125,29 @@ function boot() {
 
       if (
         !profile?.active ||
-        !['admin', 'gestor', 'rh', 'diretoria'].includes(profile.role)
+        !['admin', 'gestor', 'rh', 'diretoria', 'marketing'].includes(profile.role)
       ) {
         throw Error('Perfil sem autorização para acessar avaliações.');
       }
 
       $('app').hidden = false;
       $('identity').textContent = `${profile.name} • ${profile.role}`;
+      $('assessmentType').value = isMarketing() ? 'DESEMPENHO' : $('assessmentType').value;
+      $('assessmentType').disabled = isMarketing();
+      $('weightHint').textContent = isMarketing()
+        ? 'Pesos do Marketing: soma 65, normalizada para 100. Qualidade e precisão do trabalho representa 13/65 da nota.'
+        : 'A nota final é ponderada pelos pesos aprovados (soma 65, normalizada para 100). Assiduidade representa 30/65 da nota.';
+      $('assessmentSummary').querySelectorAll('button[data-status]').forEach(button => {
+        button.hidden = isMarketing() && button.dataset.status !== 'ALL';
+      });
+      refreshCriterionWeights();
+      configureType();
       $('evaluatorName').textContent = profile.name;
       $('assessmentForm').hidden = false;
 
-      $('tabNew').hidden = !['admin', 'gestor'].includes(profile.role);
+      $('tabNew').hidden = !['admin', 'gestor', 'marketing'].includes(profile.role);
 
-      if (['admin', 'gestor'].includes(profile.role)) {
+      if (['admin', 'gestor', 'marketing'].includes(profile.role)) {
         selectPage('new');
       } else {
         selectPage('history');
@@ -245,7 +269,7 @@ function boot() {
     const complete = selected.every(s => s.value !== '');
 
     const summary = complete
-      ? calculate(
+      ? currentScore(
           Object.fromEntries(
             selected.map(s => [s.dataset.key, Number(s.value)])
           )
@@ -276,7 +300,7 @@ function boot() {
     e.preventDefault();
     $('formError').textContent = '';
 
-    if (!profile || !['admin', 'gestor'].includes(profile.role)) {
+    if (!profile || !['admin', 'gestor', 'marketing'].includes(profile.role)) {
       $('formError').textContent =
         'Entre como gestor autorizado antes de gerar o relatório.';
       return;
@@ -284,7 +308,8 @@ function boot() {
 
     const values = Object.fromEntries(new FormData(e.target));
 
-    const type = values.type;
+    const type = isMarketing() ? 'DESEMPENHO' : values.type;
+    values.type = type;
     const scores = type === 'DESEMPENHO' ? Object.fromEntries(
       [...document.querySelectorAll('#criteria select')].map(s => [s.dataset.key, Number(s.value)])
     ) : null;
@@ -295,7 +320,7 @@ function boot() {
     let result = null;
 
     try {
-      if (type === 'DESEMPENHO') result = calculate(scores);
+      if (type === 'DESEMPENHO') result = currentScore(scores);
       else if (!questions.length) throw Error('Tipo de avaliação sem questionário configurado.');
     } catch (err) {
       $('formError').textContent = err.message;
@@ -335,7 +360,9 @@ function boot() {
         scores: scores || {},
         total: result?.total ?? null,
         rawTotal: result?.rawTotal ?? null,
-        scoringVersion: type === 'DESEMPENHO' ? POLICY_VERSION : null,
+        scoringVersion: type === 'DESEMPENHO'
+          ? (isMarketing() ? MARKETING_POLICY_VERSION : POLICY_VERSION) : null,
+        scoringWeights: type === 'DESEMPENHO' ? { ...currentWeights() } : {},
         notes: values.notes?.trim() || '',
         plan: Object.fromEntries(
           ['goal', 'action', 'owner']
@@ -343,6 +370,7 @@ function boot() {
         ),
         evaluator: profile.name,
         evaluatorUid: auth.currentUser.uid,
+        evaluatorRole: profile.role,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         status: employeeQuestionnaire ? 'AGUARDANDO_COLABORADOR' : 'AGUARDANDO_RH',
@@ -356,7 +384,36 @@ function boot() {
         directorAt: null
       };
 
-      const ref = await addDoc(collection(db, 'assessments'), payload);
+      let ref;
+      if (isMarketing()) {
+        ref = doc(collection(db, 'assessments'));
+        const managerRecord = {
+          employee: payload.employee,
+          employeeNameKey: payload.employeeNameKey,
+          position: payload.position,
+          department: payload.department,
+          type: payload.type,
+          periodStart: payload.periodStart,
+          periodEnd: payload.periodEnd,
+          scores: payload.scores,
+          total: payload.total,
+          rawTotal: payload.rawTotal,
+          scoringVersion: payload.scoringVersion,
+          scoringWeights: payload.scoringWeights,
+          notes: payload.notes,
+          plan: payload.plan,
+          evaluator: payload.evaluator,
+          evaluatorUid: payload.evaluatorUid,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+        const batch = writeBatch(db);
+        batch.set(ref, payload);
+        batch.set(doc(db, 'marketingAssessments', ref.id), managerRecord);
+        await batch.commit();
+      } else {
+        ref = await addDoc(collection(db, 'assessments'), payload);
+      }
       registered = true;
 
       if (employeeQuestionnaire) {
@@ -410,8 +467,8 @@ function boot() {
         historyUnsubscribe = null;
       }
 
-      const base = collection(db, 'assessments');
-      const source = profile.role === 'gestor'
+      const base = collection(db, isMarketing() ? 'marketingAssessments' : 'assessments');
+      const source = ['gestor', 'marketing'].includes(profile.role)
         ? query(base, where('evaluatorUid', '==', auth.currentUser.uid))
         : base;
 
@@ -542,7 +599,8 @@ function boot() {
         manager.textContent = 'Aguardando considerações do gestor';
         status.append(manager, document.createTextNode(' '));
       }
-      status.append(rh, document.createTextNode(' '), director);
+      if (isMarketing()) status.textContent = 'Registro do gestor';
+      else status.append(rh, document.createTextNode(' '), director);
 
       const view = document.createElement('button');
       view.type = 'button';
@@ -563,7 +621,7 @@ function boot() {
             itemValues(item),
             item.scores,
             item.type === 'DESEMPENHO' || Object.keys(item.scores || {}).length === 10
-              ? (item.scoringVersion ? calculate(item.scores) : calculateLegacy(item.scores)) : null,
+              ? calculateRecord(item.scores, item.scoringVersion) : null,
             item.evaluator,
             item
           );
@@ -881,7 +939,7 @@ function boot() {
 
       for (const value of [
         `${i + 1}. ${label}`,
-        String(record?.scoringVersion ? WEIGHTS[key] : '—'),
+        String(record?.scoringVersion ? (record.scoringWeights?.[key] ?? weightsForVersion(record.scoringVersion)[key]) : '—'),
         `${scores[key]}/10`
       ]) {
         const cell = d.createElement('td');
@@ -950,6 +1008,7 @@ function boot() {
     main.append(plan);
     }
 
+    if (!isMarketing()) {
     addTitle('Acompanhamento das análises');
 
     const tracking = d.createElement('div');
@@ -990,15 +1049,14 @@ function boot() {
 
       main.append(director);
     }
+    }
 
     const signatures = d.createElement('div');
     signatures.className = 'signatures';
 
-    for (const label of [
-      'Gestor avaliador',
-      'Coordenação de RH',
-      'Diretoria Executiva'
-    ]) {
+    for (const label of isMarketing()
+      ? ['Gestor avaliador']
+      : ['Gestor avaliador', 'Coordenação de RH', 'Diretoria Executiva']) {
       const field = d.createElement('div');
       field.textContent = label;
       signatures.append(field);
