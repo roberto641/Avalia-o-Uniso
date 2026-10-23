@@ -3,7 +3,8 @@ import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, sendS
 import { getFirestore, doc, getDoc, onSnapshot, collection, query, where, addDoc, updateDoc, writeBatch, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-firestore.js';
 import { firebaseConfig } from './config.js';
 const { CRITERIA, WEIGHTS, POLICY_VERSION, MARKETING_WEIGHTS, MARKETING_POLICY_VERSION,
-  calculate, calculateMarketing, calculateRecord, weightsForVersion } = globalThis.UNISO_SCORING;
+  RH_CRITERIA, requiresRhScores, calculate, calculateMarketing, calculateRecord,
+  weightsForVersion } = globalThis.UNISO_SCORING;
 const { QUESTIONNAIRES, QUESTIONNAIRE_VERSION } = globalThis.UNISO_QUESTIONNAIRES;
 const TYPES = { DESEMPENHO: 'Avaliação e Desempenho', EXPERIENCIA: 'Experiência', PROMOCAO: 'Promoção', PERIODICA: 'Avaliação periódica' };
 const questionKey = index => `q${String(index + 1).padStart(2, '0')}`;
@@ -25,6 +26,10 @@ function boot() {
   let historyUnsubscribe = null;
   let statusFilter = 'ALL';
   const isMarketing = () => profile?.role === 'marketing';
+  const accountName = () =>
+    (typeof profile?.name === 'string' && profile.name.trim()) ||
+    auth.currentUser?.email?.trim() ||
+    'Usuário';
   const currentWeights = () => isMarketing() ? MARKETING_WEIGHTS : WEIGHTS;
   const currentScore = scores => isMarketing() ? calculateMarketing(scores) : calculate(scores);
 
@@ -131,7 +136,7 @@ function boot() {
       }
 
       $('app').hidden = false;
-      $('identity').textContent = `${profile.name} • ${profile.role}`;
+      $('identity').textContent = `${accountName()} • ${profile.role}`;
       $('assessmentType').value = isMarketing() ? 'DESEMPENHO' : $('assessmentType').value;
       $('assessmentType').disabled = isMarketing();
       $('weightHint').textContent = isMarketing()
@@ -142,7 +147,7 @@ function boot() {
       });
       refreshCriterionWeights();
       configureType();
-      $('evaluatorName').textContent = profile.name;
+      $('evaluatorName').textContent = accountName();
       $('assessmentForm').hidden = false;
 
       $('tabNew').hidden = !['admin', 'gestor', 'marketing'].includes(profile.role);
@@ -358,6 +363,7 @@ function boot() {
         periodStart: values.periodStart,
         periodEnd: values.periodEnd,
         scores: scores || {},
+        rhScores: {},
         total: result?.total ?? null,
         rawTotal: result?.rawTotal ?? null,
         scoringVersion: type === 'DESEMPENHO'
@@ -368,7 +374,7 @@ function boot() {
           ['goal', 'action', 'owner']
             .map(key => [key, values[key]?.trim() || ''])
         ),
-        evaluator: profile.name,
+        evaluator: accountName(),
         evaluatorUid: auth.currentUser.uid,
         evaluatorRole: profile.role,
         createdAt: serverTimestamp(),
@@ -404,6 +410,8 @@ function boot() {
           plan: payload.plan,
           evaluator: payload.evaluator,
           evaluatorUid: payload.evaluatorUid,
+          evaluatorRole: payload.evaluatorRole,
+          status: payload.status,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp()
         };
@@ -439,7 +447,7 @@ function boot() {
           values,
           scores,
           result,
-          profile.name,
+          accountName(),
           { ...payload, id: ref.id }
         );
       } catch (err) {
@@ -621,7 +629,7 @@ function boot() {
             itemValues(item),
             item.scores,
             item.type === 'DESEMPENHO' || Object.keys(item.scores || {}).length === 10
-              ? calculateRecord(item.scores, item.scoringVersion) : null,
+              ? calculateRecord(item.scores, item.scoringVersion, item.rhScores, item.scoringWeights) : null,
             item.evaluator,
             item
           );
@@ -730,7 +738,7 @@ function boot() {
           notes: values.notes,
           plan: { goal: values.goal, action: values.action, owner: values.owner },
           managerUid: auth.currentUser.uid,
-          managerName: profile.name,
+          managerName: accountName(),
           managerAt: serverTimestamp(),
           status: 'AGUARDANDO_RH',
           updatedAt: serverTimestamp()
@@ -745,6 +753,30 @@ function boot() {
 
   function reviewForm(item, stage) {
     const form = document.createElement('form');
+    const scoreInputs = {};
+
+    if (stage === 'rh' && requiresRhScores(item)) {
+      const title = document.createElement('h3');
+      title.textContent = 'Notas do RH • Assiduidade e Pontualidade';
+      form.append(title);
+      for (const key of RH_CRITERIA) {
+        const label = document.createElement('label');
+        const criterion = CRITERIA.find(([criterionKey]) => criterionKey === key)[1];
+        const weight = item.scoringWeights?.[key] ?? weightsForVersion(item.scoringVersion)[key];
+        label.textContent = `${criterion} — nota do gestor: ${item.scores[key]}/10; peso ${weight}. Nota do RH`;
+        const select = document.createElement('select');
+        select.required = true;
+        select.append(new Option('Selecione', ''));
+        for (let score = 0; score <= 10; score++) select.append(new Option(String(score), String(score)));
+        label.append(select);
+        form.append(label);
+        scoreInputs[key] = select;
+      }
+      const help = document.createElement('p');
+      help.className = 'hint';
+      help.textContent = 'Em cada critério, a nota final será a média das notas do gestor e do RH. O peso permanece o mesmo.';
+      form.append(help);
+    }
 
     const label = document.createElement('label');
     label.textContent = stage === 'rh'
@@ -777,6 +809,11 @@ function boot() {
         error.textContent = 'Preencha a observação.';
         return;
       }
+      if (stage === 'rh' && requiresRhScores(item) &&
+          RH_CRITERIA.some(key => scoreInputs[key].value === '')) {
+        error.textContent = 'Informe as notas do RH para Assiduidade e Pontualidade.';
+        return;
+      }
 
       if (
         !window.confirm(
@@ -790,12 +827,19 @@ function boot() {
       error.textContent = '';
 
       try {
+        const rhScores = stage === 'rh' && requiresRhScores(item)
+          ? Object.fromEntries(RH_CRITERIA.map(key => [key, Number(scoreInputs[key].value)]))
+          : null;
+        const finalResult = rhScores
+          ? calculateRecord(item.scores, item.scoringVersion, rhScores, item.scoringWeights)
+          : null;
         const fields = stage === 'rh'
           ? {
               status: 'AGUARDANDO_DIRETORIA',
+              ...(rhScores ? { rhScores, total: finalResult.total, rawTotal: finalResult.rawTotal } : {}),
               rhNote: note.value.trim(),
               rhUid: auth.currentUser.uid,
-              rhName: profile.name,
+              rhName: accountName(),
               rhAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             }
@@ -803,7 +847,7 @@ function boot() {
               status: 'CONCLUIDA',
               directorNote: note.value.trim(),
               directorUid: auth.currentUser.uid,
-              directorName: profile.name,
+              directorName: accountName(),
               directorAt: serverTimestamp(),
               updatedAt: serverTimestamp()
             };
@@ -924,7 +968,10 @@ function boot() {
     const tbody = d.createElement('tbody');
     const headRow = d.createElement('tr');
 
-    for (const text of ['Critério', 'Peso', 'Nota']) {
+    const twoReviewers = requiresRhScores(record) && !isMarketing();
+    for (const text of twoReviewers
+      ? ['Critério', 'Peso', 'Gestor', 'RH', 'Nota considerada']
+      : ['Critério', 'Peso', 'Nota']) {
       const cell = d.createElement('th');
       cell.textContent = text;
       headRow.append(cell);
@@ -937,11 +984,18 @@ function boot() {
     CRITERIA.forEach(([key, label], i) => {
       const row = d.createElement('tr');
 
-      for (const value of [
+      const rhScore = record?.rhScores?.[key];
+      const cells = [
         `${i + 1}. ${label}`,
         String(record?.scoringVersion ? (record.scoringWeights?.[key] ?? weightsForVersion(record.scoringVersion)[key]) : '—'),
         `${scores[key]}/10`
-      ]) {
+      ];
+      if (twoReviewers) {
+        cells.push(RH_CRITERIA.includes(key) && Number.isInteger(rhScore) ? `${rhScore}/10` : '—');
+        cells.push(RH_CRITERIA.includes(key) && Number.isInteger(rhScore)
+          ? `${(scores[key] + rhScore) / 2}/10` : `${scores[key]}/10`);
+      }
+      for (const value of cells) {
         const cell = d.createElement('td');
         cell.textContent = value;
         row.append(cell);
@@ -953,8 +1007,10 @@ function boot() {
     const summary = d.createElement('div');
     summary.className = 'result';
 
+    const awaitingRhScore = requiresRhScores(record) &&
+      !RH_CRITERIA.every(key => Number.isInteger(record?.rhScores?.[key]));
     summary.textContent =
-      `Nota final: ${result.total}/100  •  Média simples: ${result.average.toFixed(1)}${record?.scoringVersion ? '  •  Pesos normalizados pela soma 65' : '  •  Regra anterior sem ponderação'}`;
+      `${awaitingRhScore ? 'Nota preliminar do gestor' : 'Nota final'}: ${result.total}/100  •  Média simples: ${result.average.toFixed(1)}${record?.scoringVersion ? '  •  Pesos normalizados pela soma 65' : '  •  Regra anterior sem ponderação'}`;
 
     summary.append(
       d.createElement('br'),
